@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>نظام إحصاء الناخبين | Pro Data Index</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Cairo', sans-serif; }
+    .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: #f1f1f1; rounded: 4px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #c7c7cc; border-radius: 4px; }
+  </style>
+</head>
+<body class="bg-gray-50 p-4 md:p-8 min-h-screen text-gray-800">
+
+  <div class="max-w-6xl mx-auto">
+    
+    <div class="bg-white rounded-2xl shadow-sm p-6 md:p-8 mb-6 border border-gray-100">
+      <div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+        <div class="text-right w-full md:w-auto">
+          <h1 class="text-3xl font-bold mb-2 text-indigo-900">نظام الإحصاء الديموغرافي</h1>
+          <p class="text-gray-500">ابحث عن المدن واعرض التوزيع الديموغرافي للطوائف.</p>
+        </div>
+        <button id="selectAllBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 px-6 rounded-xl transition-all shadow-sm w-full md:w-auto">
+          عرض الكل (إلغاء الفلاتر)
+        </button>
+      </div>
+      
+      <div class="flex flex-col md:flex-row gap-4 w-full relative z-20">
+        <div class="relative flex-1">
+          <input type="text" id="citySearch" autocomplete="off" placeholder="ابحث عن مدينة (مثال: جبيل)..." class="w-full pr-4 pl-4 py-3 rounded-xl border border-gray-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-all outline-none bg-gray-50 focus:bg-white" />
+          
+          <ul id="suggestionsList" class="absolute w-full bg-white border border-gray-200 rounded-xl mt-1 shadow-lg max-h-60 overflow-y-auto hidden custom-scrollbar">
+          </ul>
+        </div>
+
+        <div class="flex-1 md:max-w-xs">
+          <select id="religionFilter" class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-all outline-none bg-gray-50 focus:bg-white cursor-pointer font-semibold text-gray-700">
+            <option value="">كل الطوائف (المجموع العام)</option>
+            <option value="ماروني">ماروني</option>
+            <option value="شيعي">شيعي</option>
+            <option value="سني">سني</option>
+            <option value="روم ارثوذكس">روم ارثوذكس</option>
+            <option value="روم كاثوليك">روم كاثوليك</option>
+            <option value="ارمن ارثوذكس">ارمن ارثوذكس</option>
+            <option value="ارمن كاثوليك">ارمن كاثوليك</option>
+            <option value="انجيلي">انجيلي</option>
+            <option value="علوي">علوي</option>
+            <option value="اقليات">أقليات</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="bg-indigo-50 border border-indigo-100 rounded-2xl p-6 mb-8 shadow-sm relative z-10">
+      <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 border-b border-indigo-100 pb-4">
+        <div>
+          <h2 class="text-xl font-bold text-indigo-900" id="summaryTitle">ملخص: كل المدن - كل الطوائف</h2>
+          <p class="text-indigo-700 mt-1">
+            <span id="cityCountLabel">عدد المدن المطابقة:</span> <span id="cityCount" class="font-bold text-xl">0</span> 
+            | 
+            <span id="totalText">العدد الإجمالي:</span> <span id="totalPopulation" class="font-black text-2xl text-indigo-900">0</span>
+          </p>
+        </div>
+      </div>
+      <div id="religionBreakdown" class="flex flex-wrap gap-2">
+        </div>
+    </div>
+
+    <div id="dataGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 relative z-0">
+      </div>
+
+  </div>
+
+  <script src="data.js"></script>
+
+  <script>
+    const cityInput = document.getElementById('citySearch');
+    const suggestionsList = document.getElementById('suggestionsList');
+    const religionSelect = document.getElementById('religionFilter');
+    const gridContainer = document.getElementById('dataGrid');
+    const selectAllBtn = document.getElementById('selectAllBtn');
+    
+    const summaryTitleEl = document.getElementById('summaryTitle');
+    const cityCountLabelEl = document.getElementById('cityCountLabel'); 
+    const cityCountEl = document.getElementById('cityCount');
+    const totalPopulationEl = document.getElementById('totalPopulation');
+    const religionBreakdownEl = document.getElementById('religionBreakdown');
+    const totalTextEl = document.getElementById('totalText');
+
+    const religionKeys = ["شيعي", "ماروني", "سني", "روم ارثوذكس", "ارمن ارثوذكس", "اقليات", "روم كاثوليك", "ارمن كاثوليك", "انجيلي", "علوي"];
+
+    window.selectCity = function(cityName) {
+      cityInput.value = cityName;
+      suggestionsList.classList.add('hidden'); 
+      handleFilter(); 
+    };
+
+    document.addEventListener('click', (e) => {
+      if (!cityInput.contains(e.target) && !suggestionsList.contains(e.target)) {
+        suggestionsList.classList.add('hidden');
+      }
+    });
+
+    // 1. تحديث الملخص
+    function updateSummary(filteredData, searchedCity, selectedReligion) {
+      let displayCity = searchedCity.trim() !== "" ? searchedCity : "كل المدن";
+      let displayReligion = selectedReligion !== "" ? selectedReligion : "كل الطوائف";
+      
+      summaryTitleEl.textContent = `ملخص: ${displayCity} - ${displayReligion}`;
+
+      // هنا قمنا بإرجاع العداد ليقرأ عدد المدن المطابقة للبحث بالضبط
+      cityCountLabelEl.textContent = `عدد المدن المطابقة:`;
+      cityCountEl.textContent = filteredData.length;
+
+      let totalPop = 0;
+      let religionTotals = {};
+      religionKeys.forEach(rel => religionTotals[rel] = 0);
+
+      filteredData.forEach(cityData => {
+        if (selectedReligion !== "") {
+          const count = cityData[selectedReligion] || 0;
+          totalPop += count;
+          religionTotals[selectedReligion] += count;
+        } else {
+          religionKeys.forEach(rel => {
+            const count = cityData[rel] || 0;
+            religionTotals[rel] += count;
+            totalPop += count;
+          });
+        }
+      });
+
+      totalTextEl.textContent = selectedReligion !== "" ? `إجمالي عدد (${selectedReligion}):` : `العدد الإجمالي:`;
+      totalPopulationEl.textContent = totalPop.toLocaleString();
+
+      religionBreakdownEl.innerHTML = '';
+      const religionsToShow = selectedReligion !== "" ? [selectedReligion] : religionKeys;
+      
+      religionsToShow.forEach(rel => {
+        const count = religionTotals[rel];
+        if (count > 0 || selectedReligion !== "") { 
+          const badgeHTML = `
+            <div class="bg-white px-3 py-2 rounded-lg shadow-sm border ${selectedReligion !== "" ? 'border-indigo-400 bg-indigo-50' : 'border-indigo-100'} flex items-center gap-2 text-sm">
+              <span class="text-gray-800 font-bold">${rel}</span>
+              <span class="bg-indigo-600 text-white font-bold px-2 py-0.5 rounded">${count.toLocaleString()}</span>
+            </div>
+          `;
+          religionBreakdownEl.insertAdjacentHTML('beforeend', badgeHTML);
+        }
+      });
+    }
+
+    // 2. رسم البطاقات 
+    function renderCards(filteredData, selectedReligion) {
+      gridContainer.innerHTML = ''; 
+
+      if (filteredData.length === 0) {
+        gridContainer.innerHTML = `
+          <div class="col-span-full text-center py-12 text-gray-500 bg-white rounded-xl shadow-sm border border-gray-100">
+            لا توجد نتائج مطابقة لبحثك. تأكد من اسم المدينة.
+          </div>
+        `;
+        return;
+      }
+
+      filteredData.forEach(item => {
+        let cardTotal = 0;
+        let detailsHTML = '';
+
+        if (selectedReligion !== "") {
+          cardTotal = item[selectedReligion] || 0;
+          
+          if (cardTotal === 0) {
+            detailsHTML = `
+              <div class="mt-4 bg-red-50 rounded-lg px-4 py-3 border border-red-200 text-center">
+                <div class="flex justify-between items-center text-lg font-bold text-red-800 mb-1">
+                  <span>${selectedReligion}</span>
+                  <span class="text-2xl">0</span>
+                </div>
+                <div class="text-sm font-bold text-red-600 mt-2">عذراً، لا يوجد هذه الطائفة في هذه البلدة</div>
+              </div>
+            `;
+          } else {
+            detailsHTML = `
+              <div class="flex justify-between items-center text-lg mt-4 bg-indigo-50 font-bold text-indigo-800 rounded-lg px-4 py-3 border border-indigo-100">
+                <span>${selectedReligion}</span>
+                <span class="text-2xl">${cardTotal.toLocaleString()}</span>
+              </div>
+            `;
+          }
+        } else {
+          const cityReligions = religionKeys
+            .map(rel => ({ name: rel, count: item[rel] || 0 }))
+            .filter(rel => rel.count > 0)
+            .sort((a, b) => b.count - a.count);
+
+          cityReligions.forEach(rel => {
+            cardTotal += rel.count;
+            detailsHTML += `
+              <div class="flex justify-between items-center text-sm mb-1">
+                <span class="text-gray-600">${rel.name}</span>
+                <span class="font-semibold text-gray-800">${rel.count.toLocaleString()}</span>
+              </div>
+            `;
+          });
+          
+          if(cardTotal === 0) detailsHTML = `<div class="text-xs text-gray-400 text-center mt-2">لا يوجد بيانات</div>`;
+        }
+
+        const cardHTML = `
+          <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition-all hover:-translate-y-1">
+            <div class="flex justify-between items-center mb-2 border-b border-gray-100 pb-3">
+              <h3 class="text-xl font-extrabold text-gray-900">${item.city}</h3>
+              <span class="px-2 py-1 rounded ${cardTotal === 0 && selectedReligion !== '' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'} text-xs font-bold">
+                ${selectedReligion !== "" ? 'العدد:' : 'المجموع:'} ${cardTotal.toLocaleString()}
+              </span>
+            </div>
+            <div class="space-y-1 max-h-40 overflow-y-auto pr-1 custom-scrollbar">
+              ${detailsHTML}
+            </div>
+          </div>
+        `;
+        gridContainer.insertAdjacentHTML('beforeend', cardHTML);
+      });
+    }
+
+    // 3. الفلترة ومعالجة الاقتراحات
+    function handleFilter() {
+      const cityQuery = cityInput.value.trim();
+      const religionQuery = religionSelect.value;
+
+      // الفلترة تتم حصراً عبر اسم المدينة، لذلك عدد المدن المطابقة سيبقى ثابتاً بغض النظر عن الطائفة المختارة
+      const filtered = data.filter(item => {
+        return item.city.includes(cityQuery);
+      });
+      renderCards(filtered, religionQuery);
+      updateSummary(filtered, cityInput.value, religionQuery);
+
+      if (cityQuery.length > 0) {
+        const matchedCities = data
+          .map(item => item.city)
+          .filter(city => city.includes(cityQuery));
+
+        if (matchedCities.length > 0) {
+          suggestionsList.innerHTML = matchedCities.map(city => `
+            <li class="px-4 py-3 hover:bg-indigo-50 cursor-pointer text-gray-800 font-semibold border-b border-gray-50 last:border-0 transition-colors" onclick="selectCity('${city}')">
+              ${city.replace(new RegExp(cityQuery, 'g'), `<span class="text-indigo-600">${cityQuery}</span>`)}
+            </li>
+          `).join('');
+          
+          suggestionsList.classList.remove('hidden'); 
+        } else {
+          suggestionsList.classList.add('hidden'); 
+        }
+      } else {
+        suggestionsList.classList.add('hidden'); 
+      }
+    }
+
+    selectAllBtn.addEventListener('click', () => {
+      cityInput.value = ''; 
+      religionSelect.value = ''; 
+      suggestionsList.classList.add('hidden');
+      handleFilter(); 
+    });
+
+    cityInput.addEventListener('input', handleFilter);
+    religionSelect.addEventListener('change', handleFilter);
+
+    renderCards(data, "");
+    updateSummary(data, "", ""); 
+  </script>
+</body>
+</html>
